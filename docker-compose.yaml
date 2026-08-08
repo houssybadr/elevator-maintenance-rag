@@ -1,0 +1,39 @@
+services:
+#   backend:
+#     build:
+#       context: ./backend
+#       dockerfile: Dockerfile
+#     container_name: spring-backend
+#     ports:
+#       - "8080:8080"
+#     restart: unless-stopped
+
+  postgres:
+    build:
+      context: ./vector_database
+      dockerfile: Dockerfile
+    container_name: vector-database
+    env_file:
+      - ./vector_database/vecdb.secrets.env
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  rag-service:
+    container_name: rag-service
+    build: 
+      context: ./rag
+      dockerfile: Dockerfile
+    env_file:
+      - ./rag/app/.env
+    ports:
+      - 8000:8000
+    depends_on:
+      - postgres
+    tty: true                  
+    
+
+volumes:
+    pgdata:
