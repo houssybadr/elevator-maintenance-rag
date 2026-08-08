@@ -1,0 +1,113 @@
+name: RAG CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  functional-health-check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: rag_db
+          POSTGRES_USER: rag_user
+          POSTGRES_PASSWORD: rag_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rag_user -d rag_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r rag/app/requirements.txt
+          python -m pip install requests
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Prepare database schema
+        run: |
+          PGPASSWORD=rag_pass psql -h localhost -U rag_user -d rag_db -f vector_database/db-init/01-schema.sql
+
+      - name: Start API
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_DB: rag_db
+          POSTGRES_USER: rag_user
+          POSTGRES_PASSWORD: rag_pass
+          GOOGLE_API_KEY: test-key
+          GROQ_API_KEY: test-key
+          API_KEY: test-api-key
+          SKIP_EMBEDDER_LOAD: "true"
+          HEALTHCHECK_INTERNET_URL: "https://www.google.com/generate_204"
+          HEALTHCHECK_TIMEOUT_SECONDS: "3"
+        run: |
+          cd rag/app
+          nohup uvicorn main:app --host 127.0.0.1 --port 8000 > /tmp/rag-api.log 2>&1 &
+          echo $! > /tmp/rag-api.pid
+
+      - name: Wait and verify /health endpoint
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:8000/health > /tmp/health.json; then
+              break
+            fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/health.json").read_text(encoding="utf-8"))
+          if payload.get("status") != "ok":
+              raise SystemExit(f"Health status is not ok: {payload}")
+
+          required_checks = [
+              "internet_connectivity",
+              "postgres_connection",
+              "pgvector_extension",
+              "documents_table",
+              "embedder_model_loaded",
+          ]
+          checks = payload.get("checks", {})
+          for key in required_checks:
+              if key not in checks:
+                  raise SystemExit(f"Missing health check '{key}': {payload}")
+              if not checks[key].get("ok"):
+                  raise SystemExit(f"Health check '{key}' failed: {payload}")
+          print("Functional health check passed.")
+          PY
+
+      - name: Show API logs on failure
+        if: failure()
+        run: |
+          if [ -f /tmp/rag-api.log ]; then
+            cat /tmp/rag-api.log
+          fi
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f /tmp/rag-api.pid ]; then
+            kill "$(cat /tmp/rag-api.pid)" || true
+          fi
