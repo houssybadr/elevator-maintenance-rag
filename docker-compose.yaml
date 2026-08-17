@@ -17,8 +17,8 @@ services:
       - POSTGRES_HOST
       - POSTGRES_DB
       - POSTGRES_USER
-    #env_file:
-      #- ./vector_database/vecdb.secrets.env
+    env_file:
+      - .env
     ports:
       - "5432:5432"
     volumes:
@@ -30,20 +30,9 @@ services:
     build: 
       context: ./rag
       dockerfile: Dockerfile
-    environment:
-      - POSTGRES_HOST
-      - POSTGRES_DB
-      - POSTGRES_USER
-      - POSTGRES_PASSWORD
-      - GOOGLE_API_KEY
-      - GROQ_API_KEY
-      - API_KEY
-      - EMBEDDING_MODEL
-      - MAX_TOKENS
-      - TOP_K
-      - MIN_SIMILARITY
-    #env_file:
-      #- ./rag/app/.env
+    
+    env_file:
+      - .env
     ports:
       - 8000:8000
     depends_on:
