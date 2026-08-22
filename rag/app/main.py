@@ -65,8 +65,8 @@ app.add_middleware(
         "https://siop.stage.enset.top"  
     ],
     allow_credentials=True,
-    allow_methods=["POST", "GET"],
-    allow_headers=["X-API-Key", "Content-Type"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Adding routers
